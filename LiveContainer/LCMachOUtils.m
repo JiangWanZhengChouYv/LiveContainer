@@ -2,7 +2,8 @@
 @import Foundation;
 @import MachO;
 #import "../litehook/src/litehook.h"
-#import "LCUtils.h"
+// LCUtils.h removed on AirStore's branch: this file imports it but calls nothing from it, and
+// pulling the header in would imply linking the app-level utilities we deliberately do not vendor.
 #include "dyld_cache_format.h"
 
 static uint32_t rnd32(uint32_t v, uint32_t r) {
