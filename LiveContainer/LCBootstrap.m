@@ -522,7 +522,11 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
     // ignore setting handler from guest app
     litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, NSSetUncaughtExceptionHandler, hook_do_nothing, nil);
     
-    BOOL hookDlopen = !isSideStore && !isSharedBundle && LCSharedUtils.certificatePassword && isLiveProcess;
+    // Upstream only hooks dlopen inside the LiveProcess extension. AirBox has no extension -- it is one
+    // process that either shows the list or becomes the guest -- so the JITLess hook has to be allowed
+    // in the main process too, otherwise iOS 26 gets the unhooked dlopen and kills the load.
+    // Needs proper testing on every iOS version AirStore claims to support.
+    BOOL hookDlopen = !isSideStore && !isSharedBundle && LCSharedUtils.certificatePassword;
     DyldHooksInit([guestAppInfo[@"hideLiveContainer"] boolValue], hookDlopen, [guestAppInfo[@"spoofSDKVersion"] unsignedIntValue]);
     
     if([guestContainerInfo[@"spoofIdentifierForVendor"] boolValue]) {
