@@ -659,6 +659,9 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
 static void exceptionHandler(NSException *exception) {
     NSString *error = [NSString stringWithFormat:@"%@\nCall stack: %@", exception.reason, exception.callStackSymbols];
     if(isLiveProcess) {
+        // A live process has no defaults the box can read -- its own domain belongs to the extension --
+        // so the reason goes into the group the two share instead of being cancelled into the void.
+        [lcSharedDefaults setObject:error forKey:@"LCGuestError"];
         NSExtensionContext *context = [NSClassFromString(@"LiveProcessHandler") extensionContext];
         [context cancelRequestWithError:[NSError errorWithDomain:@"LiveProcess" code:1 userInfo:@{NSLocalizedDescriptionKey: error}]];
     } else {
@@ -812,6 +815,7 @@ int LiveContainerMain(int argc, char *argv[]) {
         NSString *appError = invokeAppMain(selectedApp, selectedContainer, argc, argv);
         if (appError) {
             if(isLiveProcess) {
+                [lcSharedDefaults setObject:appError forKey:@"LCGuestError"];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(100 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
                     NSExtensionContext *context = [NSClassFromString(@"LiveProcessHandler") extensionContext];
                     [context cancelRequestWithError:[NSError errorWithDomain:@"LiveProcess" code:1 userInfo:@{NSLocalizedDescriptionKey: appError}]];

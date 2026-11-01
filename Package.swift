@@ -1,8 +1,9 @@
 // swift-tools-version: 5.9
 //
-// AirBox's engine. This package exists on AirStore's branch of the LiveContainer fork so the vendored
-// code stays upstream's: nothing in LiveContainer/ is edited, and what we add is the manifest, the one
-// header Apple does not ship (dyld_cache_format.h) and a two-line public API.
+// AirBox's engine. This package exists on AirStore's branch of the LiveContainer fork so that the two
+// bundles that need the engine -- the box and the extension it embeds -- are reading the same sources,
+// and what we keep beside upstream's is this manifest and the one header Apple does not ship
+// (dyld_cache_format.h).
 import PackageDescription
 
 let sources = [
@@ -22,7 +23,6 @@ let sources = [
     "LiveContainer/Tweaks/SecItem.m",
     "LiveContainer/Tweaks/mach_excServer.c",
     "litehook/src/litehook.c",
-    "LiveContainer/AirBoxEngine.m",   // ours: the entry point AirBox calls
 ]
 
 let package = Package(
@@ -43,7 +43,7 @@ let package = Package(
                 "LiveContainer.xcodeproj",
             ],
             sources: sources,
-            publicHeadersPath: "Include",   // only the entry point (and the vendored dyld header) is public
+            publicHeadersPath: "Include",   // the one header Apple does not ship
             cSettings: [
                 .headerSearchPath("LiveContainer"),
                 .headerSearchPath("LiveContainer/Tweaks"),
