@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include "../litehook/src/litehook.h"
 #import "Tweaks/Tweaks.h"
@@ -377,16 +378,17 @@ static void LCProbeSignature(NSString *path)
         ssize_t got = pread(fd, page, firstPageSize, sliceStart);
         NSString *computed = @"unreadable";
         if (got > 0) {
-            unsigned char digest[CCSHA256_DIGEST_LENGTH];
+            unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+            NSUInteger digestLength = CC_SHA256_DIGEST_LENGTH;
             if (hashType == 1) {
-                unsigned char sha1[CCSHA1_DIGEST_LENGTH];
-                CC_SHA1(page, (CC_LONG)got, sha1);
-                NSData *data = [NSData dataWithBytes:sha1 length:CCSHA1_DIGEST_LENGTH];
-                computed = [[data subdataWithRange:NSMakeRange(0, MIN((NSUInteger)hashSize, data.length))] description];
+                CC_SHA1(page, (CC_LONG)got, digest);
+                digestLength = CC_SHA1_DIGEST_LENGTH;
             } else {
                 CC_SHA256(page, (CC_LONG)got, digest);
-                computed = [[NSData dataWithBytes:digest length:CCSHA256_DIGEST_LENGTH] description];
             }
+            // Truncate to the directory's own hash width so the two strings are comparable.
+            NSData *data = [NSData dataWithBytes:digest length:digestLength];
+            computed = [[data subdataWithRange:NSMakeRange(0, MIN((NSUInteger)hashSize, data.length))] description];
         }
         NSData *claimed = [NSData dataWithBytes:cd + hashOffset length:hashSize];
         NSLog(@"[LCProbe] %@: first page hashes %@ the directory's slot 0 (%@ vs %@)", path.lastPathComponent,
