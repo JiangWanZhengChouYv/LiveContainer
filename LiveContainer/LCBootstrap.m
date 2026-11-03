@@ -18,6 +18,10 @@
 #include "../litehook/src/litehook.h"
 #import "Tweaks/Tweaks.h"
 #include <mach-o/ldsyms.h>
+#import <CommonCrypto/CommonDigest.h>
+
+// Big-endian word at a byte offset, for reading a code signature the way the kernel does.
+#define LCBE32(p, at) (((uint32_t)(p)[at] << 24) | ((uint32_t)(p)[(at) + 1] << 16) | ((uint32_t)(p)[(at) + 2] << 8) | (uint32_t)(p)[(at) + 3])
 
 extern char **environ;
 static int (*appMain)(int, char**, char**);
@@ -328,6 +332,76 @@ static void LCProbeSignature(NSString *path)
     NSLog(@"[LCProbe] %@: %@ (errno=%d, blob=0x%X/0x%X, covered=0x%llX)", path.lastPathComponent,
           result == 0 ? @"kernel accepts the signature" : @"kernel refuses the signature",
           errno, signatureOffset, signatureSize, (unsigned long long)info.fs_file_start);
+
+    if (result != 0) {
+        // Refused. Say whether the file on disk still is the one that was signed, because that is the
+        // only remaining split between "our signature is not accepted here" and "something rewrote
+        // this file after we signed it": re-hash the first page and compare with what the directory
+        // claims, and print the directory's own fields so a rewritten header is visible too.
+        uint8_t *blob = calloc(signatureSize, 1);
+        uint32_t cdOffset = 0, cdSize = 0;
+        if (blob && pread(fd, blob, signatureSize, sliceStart + signatureOffset) == signatureSize) {
+            uint32_t slots = LCBE32(blob, 8);
+            for (uint32_t i = 0; i < slots; i++) {
+                uint32_t type = LCBE32(blob, 12 + i * 8), offset = LCBE32(blob, 16 + i * 8);
+                if (type == 0 && offset + 8 <= signatureSize) {
+                    cdOffset = offset;
+                    cdSize = LCBE32(blob, offset + 4);
+                }
+            }
+        }
+        if (cdOffset == 0 || cdSize < 40 || cdSize > signatureSize) {
+            NSLog(@"[LCProbe] %@: no code directory inside that blob", path.lastPathComponent);
+            free(blob);
+            close(fd);
+            return;
+        }
+
+        uint8_t *cd = blob + cdOffset;
+        uint32_t cdVersion = LCBE32(cd, 8), flags = LCBE32(cd, 12);
+        uint32_t hashOffset = LCBE32(cd, 16), identOffset = LCBE32(cd, 20);
+        uint32_t nSpecial = LCBE32(cd, 24), nCode = LCBE32(cd, 28), codeLimit = LCBE32(cd, 32);
+        uint8_t hashSize = cd[36], hashType = cd[37], platform = cd[38], pageShift = cd[39];
+        uint32_t teamOffset = LCBE32(cd, 48);
+        NSString *identifier = identOffset < cdSize
+            ? [NSString stringWithUTF8String:(char *)cd + identOffset] : @"-";
+        NSString *team = teamOffset && teamOffset < cdSize
+            ? [NSString stringWithUTF8String:(char *)cd + teamOffset] : @"-";
+
+        off_t fileSize = lseek(fd, 0, SEEK_END);
+        struct stat st;
+        fstat(fd, &st);
+
+        uint32_t firstPageSize = 1u << pageShift;
+        uint8_t *page = calloc(firstPageSize, 1);
+        ssize_t got = pread(fd, page, firstPageSize, sliceStart);
+        NSString *computed = @"unreadable";
+        if (got > 0) {
+            unsigned char digest[CCSHA256_DIGEST_LENGTH];
+            if (hashType == 1) {
+                unsigned char sha1[CCSHA1_DIGEST_LENGTH];
+                CC_SHA1(page, (CC_LONG)got, sha1);
+                NSData *data = [NSData dataWithBytes:sha1 length:CCSHA1_DIGEST_LENGTH];
+                computed = [[data subdataWithRange:NSMakeRange(0, MIN((NSUInteger)hashSize, data.length))] description];
+            } else {
+                CC_SHA256(page, (CC_LONG)got, digest);
+                computed = [[NSData dataWithBytes:digest length:CCSHA256_DIGEST_LENGTH] description];
+            }
+        }
+        NSData *claimed = [NSData dataWithBytes:cd + hashOffset length:hashSize];
+        NSLog(@"[LCProbe] %@: first page hashes %@ the directory's slot 0 (%@ vs %@)", path.lastPathComponent,
+              [computed isEqualToString:[claimed description]] ? @"MATCHES" : @"DOES NOT MATCH",
+              [claimed description], computed);
+        NSLog(@"[LCProbe] %@: cd version=0x%X flags=0x%X hashType=%d hashSize=%d platform=%d pageShift=%d "
+              @"nSpecial=%d nCode=%d codeLimit=%d ident=%@ team=%@",
+              path.lastPathComponent, cdVersion, flags, hashType, hashSize, platform, pageShift,
+              nSpecial, nCode, codeLimit, identifier, team);
+        NSLog(@"[LCProbe] %@: file=%lld bytes, slice at 0x%llX, mtime=%.0f, size signed=%u",
+              path.lastPathComponent, (long long)fileSize, (unsigned long long)sliceStart,
+              st.st_mtimespec.tv_sec, codeLimit);
+        free(page);
+        free(blob);
+    }
     close(fd);
 }
 
