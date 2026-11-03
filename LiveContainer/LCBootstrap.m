@@ -11,6 +11,7 @@
 
 #include <dlfcn.h>
 #include <execinfo.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <stdlib.h>
@@ -246,6 +247,88 @@ static void *getAppEntryPoint(void *handle) {
     }
     assert(entryoff > 0);
     return (void *)header + entryoff;
+}
+
+/// AirStore probe. Ask the kernel to register one file's own signature -- the very `fcntl`
+/// dyld calls before it maps a library (`F_ADDFILESIGS_RETURN`) -- without mapping or running
+/// anything, because running a library of somebody else's to test a signature takes this
+/// process down with it. A binary the kernel accepts here but dyld still refuses points at
+/// the header rewrite, not at the signature; one refused here says the signature itself is
+/// what iOS will not take in this process.
+static void LCProbeSignature(NSString *path)
+{
+    int fd = open(path.fileSystemRepresentation, O_RDONLY);
+    if (fd < 0) {
+        NSLog(@"[LCProbe] %@: open failed (errno=%d)", path.lastPathComponent, errno);
+        return;
+    }
+
+    uint8_t raw[4];
+    uint64_t sliceStart = 0;
+    if (pread(fd, raw, sizeof(raw), 0) != sizeof(raw)) {
+        NSLog(@"[LCProbe] %@: too short to be a Mach-O", path.lastPathComponent);
+        close(fd);
+        return;
+    }
+
+    // 0xCAFEBABE sits on disk big-endian, 0xFEEDFACF little-endian. A fat container is probed
+    // through its first slice, which is the arm64 one in every guest seen so far.
+    BOOL isFat = raw[0] == 0xCA && raw[1] == 0xFE && raw[2] == 0xBA && raw[3] == 0xBE;
+    BOOL isThin64 = raw[0] == 0xCF && raw[1] == 0xFA && raw[2] == 0xED && raw[3] == 0xFE;
+    if (isFat) {
+        uint8_t first[20];
+        if (pread(fd, first, sizeof(first), 8) != sizeof(first)) {
+            NSLog(@"[LCProbe] %@: fat header unreadable", path.lastPathComponent);
+            close(fd);
+            return;
+        }
+        sliceStart = ((uint64_t)first[8] << 24) | ((uint64_t)first[9] << 16) | ((uint64_t)first[10] << 8) | first[11];
+    } else if (!isThin64) {
+        NSLog(@"[LCProbe] %@: not a 64-bit Mach-O", path.lastPathComponent);
+        close(fd);
+        return;
+    }
+
+    struct mach_header_64 header;
+    if (pread(fd, &header, sizeof(header), sliceStart) != sizeof(header)) {
+        NSLog(@"[LCProbe] %@: header unreadable", path.lastPathComponent);
+        close(fd);
+        return;
+    }
+
+    uint32_t commandsSize = header.sizeofcmds > 0x4000 ? 0x4000 : header.sizeofcmds;
+    uint8_t *commands = calloc(commandsSize, 1);
+    uint32_t signatureOffset = 0, signatureSize = 0;
+    if (commands && pread(fd, commands, commandsSize, sliceStart + sizeof(header)) == commandsSize) {
+        uint32_t cursor = 0;
+        for (uint32_t i = 0; i < header.ncmds && cursor + 8 <= commandsSize; i++) {
+            uint32_t cmd = *(uint32_t *)(commands + cursor);
+            uint32_t cmdSize = *(uint32_t *)(commands + cursor + 4);
+            if (cmdSize < 8) break;
+            if (cmd == LC_CODE_SIGNATURE && cursor + 16 <= commandsSize) {
+                signatureOffset = *(uint32_t *)(commands + cursor + 8);
+                signatureSize = *(uint32_t *)(commands + cursor + 12);
+            }
+            cursor += cmdSize;
+        }
+    }
+    free(commands);
+
+    if (signatureOffset == 0 || signatureSize == 0) {
+        NSLog(@"[LCProbe] %@: carries no signature", path.lastPathComponent);
+        close(fd);
+        return;
+    }
+
+    fsignatures_t info = {0};
+    info.fs_file_start = sliceStart;
+    info.fs_blob_start = (void *)(uintptr_t)(sliceStart + signatureOffset);
+    info.fs_blob_size = signatureSize;
+    int result = fcntl(fd, F_ADDFILESIGS_RETURN, &info);
+    NSLog(@"[LCProbe] %@: %@ (errno=%d, blob=0x%X/0x%X, covered=0x%llX)", path.lastPathComponent,
+          result == 0 ? @"kernel accepts the signature" : @"kernel refuses the signature",
+          errno, signatureOffset, signatureSize, (unsigned long long)info.fs_file_start);
+    close(fd);
 }
 
 static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContainer, int argc, char *argv[]) {
@@ -597,13 +680,18 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
         }
         NSLog(@"[LCBootstrap] %@", appError);
 
-        // AirStore probe. Everything this failure can mean has already been said once, and the two
-        // readings need opposite fixes: the signature we put on the file, or the header we rewrote in
-        // it. So load the guest's other binaries through this same call and say which way each went --
-        // they are signed by the same pass but untouched by the patcher, and the thin ones are what
-        // upstream's own guests look like. Logged before each attempt because a library that dies on
-        // load would take the rest of the list with it.
+        // Hand the failure back before anything else runs. The first version of the probe below
+        // dlopened a library chosen by the guest, and that library took the process down on the spot
+        // -- the store was left with no reason to show, which looked like AirBox doing nothing at all.
+        if (isLiveProcess) {
+            [lcSharedDefaults setObject:appError forKey:@"LCGuestError"];
+        }
+
+        // Now ask the kernel about each signature without executing anything: this binary, the
+        // guest's own frameworks, and this process's own executable as the control that proves the
+        // probe answers "accepted" when a signature really is good.
         NSString *guestDir = [@(appExecPath) stringByDeletingLastPathComponent];
+        LCProbeSignature(@(appExecPath));
         NSString *frameworksDir = [guestDir stringByAppendingPathComponent:@"Frameworks"];
         for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:frameworksDir error:nil]) {
             NSString *candidate = [frameworksDir stringByAppendingPathComponent:entry];
@@ -612,13 +700,9 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
             } else if (![entry.pathExtension isEqualToString:@"dylib"]) {
                 continue;
             }
-            if (![NSFileManager.defaultManager fileExistsAtPath:candidate]) continue;
-            NSLog(@"[LCBootstrap] probe: trying %@", candidate.lastPathComponent);
-            void *probeHandle = dlopen_nolock(candidate.UTF8String, RTLD_LAZY|RTLD_GLOBAL|RTLD_FIRST);
-            const char *probeError = dlerror();
-            NSLog(@"[LCBootstrap] probe: %@ loads %@ (%s)", candidate.lastPathComponent,
-                  probeHandle ? "yes" : "no", probeError ? probeError : "no error");
+            LCProbeSignature(candidate);
         }
+        LCProbeSignature(NSBundle.mainBundle.executablePath);
 
         *path = oldPath;
         return appError;
