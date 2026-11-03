@@ -596,6 +596,30 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
             appError = @"dlopen: an unknown error occurred";
         }
         NSLog(@"[LCBootstrap] %@", appError);
+
+        // AirStore probe. Everything this failure can mean has already been said once, and the two
+        // readings need opposite fixes: the signature we put on the file, or the header we rewrote in
+        // it. So load the guest's other binaries through this same call and say which way each went --
+        // they are signed by the same pass but untouched by the patcher, and the thin ones are what
+        // upstream's own guests look like. Logged before each attempt because a library that dies on
+        // load would take the rest of the list with it.
+        NSString *guestDir = [@(appExecPath) stringByDeletingLastPathComponent];
+        NSString *frameworksDir = [guestDir stringByAppendingPathComponent:@"Frameworks"];
+        for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:frameworksDir error:nil]) {
+            NSString *candidate = [frameworksDir stringByAppendingPathComponent:entry];
+            if ([entry.pathExtension isEqualToString:@"framework"]) {
+                candidate = [candidate stringByAppendingPathComponent:entry.stringByDeletingPathExtension];
+            } else if (![entry.pathExtension isEqualToString:@"dylib"]) {
+                continue;
+            }
+            if (![NSFileManager.defaultManager fileExistsAtPath:candidate]) continue;
+            NSLog(@"[LCBootstrap] probe: trying %@", candidate.lastPathComponent);
+            void *probeHandle = dlopen_nolock(candidate.UTF8String, RTLD_LAZY|RTLD_GLOBAL|RTLD_FIRST);
+            const char *probeError = dlerror();
+            NSLog(@"[LCBootstrap] probe: %@ loads %@ (%s)", candidate.lastPathComponent,
+                  probeHandle ? "yes" : "no", probeError ? probeError : "no error");
+        }
+
         *path = oldPath;
         return appError;
     }
