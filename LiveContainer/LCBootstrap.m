@@ -414,18 +414,25 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
     }
     if (!LCSharedUtils.certificatePassword && !isSideStore) {
 #if !TARGET_OS_SIMULATOR
-        if(@available(iOS 26.0 ,*))  {
-            return @"JITLess mode is required since iOS 26. Please set it up in settings. \nPlease go to LiveContainer settings -> tap \"Import Certificate from SideStore\" / \"Import Certificate\"";
-        }
+        // Upstream refuses JIT outright from iOS 26 on, and that refusal is a policy choice, not a
+        // kernel fact: AirStore ships its own JIT enabler, verified on this device. JIT is also the
+        // only mode left here, because it is the mode that bypasses library validation (see
+        // init_bypassDyldLibValidation below) instead of needing a guest signature the kernel accepts.
+        // So ask, and write down what the kernel answered.
+        int csFlags = 0;
+        csops(getpid(), 0, &csFlags, sizeof(csFlags));
+        NSLog(@"[LCBootstrap] no certificate published, probing JIT (csops flags 0x%x, CS_DEBUGGED %@)",
+              csFlags, (csFlags & CS_DEBUGGED) ? @"set" : @"clear");
 #endif
         // First of all, let's check if we have JIT
         for (int i = 0; i < 10 && !checkJITEnabled(); i++) {
             usleep(1000*100);
         }
         if (!checkJITEnabled()) {
-            appError = @"JIT was not enabled. If you want to use LiveContainer without JIT, setup JITLess mode in settings.";
+            appError = @"JIT was not enabled. Turn on Enable JIT for AirBox in AirStore, then open this app again.";
             return appError;
         }
+        NSLog(@"[LCBootstrap] JIT is enabled: library validation will be bypassed");
     }
 
     NSFileManager *fm = NSFileManager.defaultManager;
