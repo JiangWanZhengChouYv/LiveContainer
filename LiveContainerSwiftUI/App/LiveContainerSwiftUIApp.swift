@@ -94,6 +94,9 @@ struct LiveContainerSwiftUIApp : SwiftUI.App {
         DataManager.shared.model.hiddenApps = tempHiddenApps
         DataManager.shared.model.appDataFolderNames = tempAppDataFolderNames
         DataManager.shared.model.tweakFolderNames = tempTweakFolderNames
+        // The store can only see what AirBox publishes into their shared group, so keep that listing
+        // in step with the list from here on.
+        ContainerManifestPublisher.shared.start(with: DataManager.shared.model)
         if let tempURLSchemes {
             UserDefaults.lcShared().set(Array(tempURLSchemes), forKey: "LCGuestURLSchemes")
         }
