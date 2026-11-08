@@ -94,11 +94,9 @@ class SharedModel: ObservableObject {
     public static let keychainAccessGroupCount = 128
     
     func updateMultiLCStatus() {
-        if LCUtils.appUrlScheme()?.lowercased() != "livecontainer" {
-            multiLCStatus = 2
-        } else {
-            multiLCStatus = 0
-        }
+        // AirBox ships a single container under its own "airbox" scheme; upstream's scheme test
+        // would mislabel that as a secondary LiveContainer2 and lock the install UI.
+        multiLCStatus = 0
     }
     
     init() {
