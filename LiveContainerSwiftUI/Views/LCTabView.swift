@@ -135,7 +135,7 @@ struct LCTabView: View {
         }
         Task {
             do {
-                try await app.runApp(forceJIT: false)
+                try await app.runApp()
             } catch {
                 NSLog("[LC] couldn't open pending guest \(folder): \(error)")
             }
