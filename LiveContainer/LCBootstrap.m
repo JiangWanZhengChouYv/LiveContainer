@@ -1046,6 +1046,14 @@ int LiveContainerMain(int argc, char *argv[]) {
         }
     }
     
+    // AirBox compiles the UI into the app binary; upstream ships it as a framework. Prefer the compiled
+    // door, fall back to the framework so this fork still builds the upstream way.
+    Class uiEntry = NSClassFromString(@"LCUIEntry");
+    if (uiEntry != nil) {
+        [uiEntry performSelector:@selector(run)];
+        return 0;
+    }
+
     void *LiveContainerSwiftUIHandle = dlopen("@executable_path/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI", RTLD_LAZY);
     NSCAssert(LiveContainerSwiftUIHandle, @"%s", dlerror());
     

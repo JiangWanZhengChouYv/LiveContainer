@@ -1,6 +1,10 @@
 #import "DecoratedAppSceneViewController.h"
 #import "ResizeHandleView.h"
+#if __has_include("LiveContainerSwiftUI-Swift.h")
 #import "LiveContainerSwiftUI-Swift.h"
+#else
+#import "AirBox-Swift.h"
+#endif
 #import "AppSceneViewController.h"
 #import "UIKitPrivate+MultitaskSupport.h"
 #import "PiPManager.h"

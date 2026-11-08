@@ -10,7 +10,11 @@
 #import "LCAppInfo.h"
 #import "../../MultitaskSupport/DecoratedAppSceneViewController.h"
 #import "../../ZSign/zsigner.h"
+#if __has_include("LiveContainerSwiftUI-Swift.h")
 #import "LiveContainerSwiftUI-Swift.h"
+#else
+#import "AirBox-Swift.h"
+#endif
 
 // make SFSafariView happy and open data: URLs
 @implementation NSURL(hack)

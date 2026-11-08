@@ -6,7 +6,6 @@
 //
 import SwiftUI
 
-@main
 struct LiveContainerSwiftUIApp : SwiftUI.App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     

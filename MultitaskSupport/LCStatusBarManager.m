@@ -5,7 +5,11 @@
 //  Created by Duy Tran on 20/2/26.
 //
 #import "LCStatusBarManager.h"
+#if __has_include("LiveContainerSwiftUI-Swift.h")
 #import "LiveContainerSwiftUI-Swift.h"
+#else
+#import "AirBox-Swift.h"
+#endif
 #import "VirtualWindowsHostView.h"
 
 @implementation LCStatusBarManager

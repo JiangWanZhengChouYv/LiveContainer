@@ -6,7 +6,11 @@
 //
 #import "AppSceneViewController.h"
 #import "DecoratedAppSceneViewController.h"
+#if __has_include("LiveContainerSwiftUI-Swift.h")
 #import "LiveContainerSwiftUI-Swift.h"
+#else
+#import "AirBox-Swift.h"
+#endif
 #import "../LiveContainerSwiftUI/Utilities/LCUtils.h"
 #import "PiPManager.h"
 #import "Localization.h"
