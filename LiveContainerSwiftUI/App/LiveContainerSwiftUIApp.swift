@@ -19,6 +19,10 @@ struct LiveContainerSwiftUIApp : SwiftUI.App {
         var tempHiddenApps: [LCAppModel] = []
         var tempURLSchemes: Set<String>? = DataManager.shared.model.multiLCStatus != 2 ? Set() : nil
 
+        // The store can only leave a marker; deleting AirBox's own bundles happens here, before the
+        // list is built, so a removed app never shows up again.
+        ContainerDeleteConsumer.consumeBeforeLoad()
+
         do {
             // load apps
             try fm.createDirectory(at: LCPath.bundlePath, withIntermediateDirectories: true)

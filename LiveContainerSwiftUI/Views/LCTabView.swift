@@ -114,6 +114,10 @@ struct LCTabView: View {
             dispatchURL(url: url)
             consumePendingGuestLaunch()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            // The store may have removed a guest while this process was in the background.
+            ContainerDeleteConsumer.apply(to: sharedModel)
+        }
     }
 
     /// AirStore stages the guest it wants and then wakes the box; the request lives in the shared
