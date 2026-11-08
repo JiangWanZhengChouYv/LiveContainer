@@ -414,7 +414,9 @@
     if(_info[@"isJITNeeded"] != nil) {
         return [_info[@"isJITNeeded"] boolValue];
     } else {
-        return NO;
+        // AirBox defaults guests to JIT: the enabler is AirStore itself, and an app that can use JIT
+        // runs noticeably faster. Turning it off in an app's settings still wins.
+        return YES;
     }
 }
 - (void)setIsJITNeeded:(bool)isJITNeeded {
