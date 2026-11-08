@@ -733,7 +733,10 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
         appExecPath = strdup(selected32bitLayerBundle.executablePath.UTF8String);
         overwriteExecPath(appExecPath);
     }
-    if(![guestAppInfo[@"dontInjectTweakLoader"] boolValue]) {
+    // AirBox ships no TweakLoader: injecting a symlink to a missing dylib is a crash waiting for a
+    // loader that will never arrive, so the cut is "not present" as well as "asked not to".
+    BOOL tweakLoaderPresent = [NSFileManager.defaultManager fileExistsAtPath:[bundlePath stringByAppendingPathComponent:@"Frameworks/TweakLoader.dylib"]];
+    if(![guestAppInfo[@"dontInjectTweakLoader"] boolValue] && tweakLoaderPresent) {
         tweakLoaderLoaded = true;
     }
     
@@ -806,7 +809,7 @@ static NSString* invokeAppMain(NSString *selectedApp, NSString *selectedContaine
     }
     
     if(sideStoreExist) {
-        if (!isLiveProcess && (isSideStore || ![guestAppInfo[@"dontInjectTweakLoader"] boolValue])) {
+        if (!isLiveProcess && tweakLoaderPresent && (isSideStore || ![guestAppInfo[@"dontInjectTweakLoader"] boolValue])) {
             dlopen([lcMainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/SideStoreSupport.framework/SideStoreSupport"].UTF8String, RTLD_LAZY);
         } else if (isLiveProcess && isSideStore) {
             dlopen([lcMainBundle.bundlePath stringByAppendingPathComponent:@"../../Frameworks/SideStoreSupport.framework/SideStoreSupport"].UTF8String, RTLD_LAZY);
