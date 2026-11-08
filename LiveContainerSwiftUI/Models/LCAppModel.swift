@@ -333,10 +333,6 @@ class LCAppModel: ObservableObject, Hashable {
         UserDefaults.standard.set(uiSelectedContainer?.folderName, forKey: "selectedContainer")
         
         var jitNeeded = appInfo.isJITNeeded || appInfo.is32bit
-        // The built-in SideStore row opens another app, not a guest; it must not go through JIT.
-        if bundleIdOverride == "builtinSideStore" {
-            jitNeeded = false
-        }
         if let forceJIT {
             jitNeeded = forceJIT
         }
