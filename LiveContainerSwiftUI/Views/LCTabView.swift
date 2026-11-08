@@ -101,6 +101,7 @@ struct LCTabView: View {
             checkAndSaveBundleId()
             checkGetTaskAllow()
             checkPrivateContainerBookmark()
+            consumePendingGuestLaunch()
         }
         .onReceive(pub) { out in
             if let scene1 = sceneDelegate.window?.windowScene, let scene2 = out.object as? UIWindowScene, scene1 == scene2 {
@@ -111,6 +112,33 @@ struct LCTabView: View {
         }
         .onOpenURL { url in
             dispatchURL(url: url)
+            consumePendingGuestLaunch()
+        }
+    }
+
+    /// AirStore stages the guest it wants and then wakes the box; the request lives in the shared
+    /// group because a sandbox cannot hand it over any other way. A request older than the launch it
+    /// was staged for is dropped rather than hijacking an import that happens to start the app.
+    private func consumePendingGuestLaunch()
+    {
+        guard let defaults = UserDefaults(suiteName: LCSharedUtils.appGroupID()),
+              let folder = defaults.string(forKey: "ABLaunchGuest"),
+              let date = defaults.object(forKey: "ABLaunchGuestDate") as? Date else { return }
+
+        defaults.removeObject(forKey: "ABLaunchGuest")
+        defaults.removeObject(forKey: "ABLaunchGuestDate")
+
+        guard abs(date.timeIntervalSinceNow) <= 120 else { return }
+        guard let app = sharedModel.apps.first(where: { ($0.appInfo.relativeBundlePath as String?) == folder }) else {
+            NSLog("[LC] pending guest \(folder) is no longer installed")
+            return
+        }
+        Task {
+            do {
+                try await app.runApp(forceJIT: false)
+            } catch {
+                NSLog("[LC] couldn't open pending guest \(folder): \(error)")
+            }
         }
     }
     
