@@ -100,18 +100,22 @@
     static BOOL loaded = NO;
     if (loaded) return;
 
-    void* handle = dlopen("@executable_path/Frameworks/ZSign.dylib", RTLD_GLOBAL);
-    const char* dlerr = dlerror();
-    if (!handle || (uint64_t)handle > 0xf00000000000) {
-        if (dlerr) {
-            *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: %s", dlerr]}];
-        } else {
-            *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: An unknown error occurred."]}];
+    // AirBox links zsign straight into the app binary instead of shipping ZSign.dylib, so a missing
+    // dylib is expected there. Only treat the load as failed when the class is not reachable either.
+    if (!NSClassFromString(@"ZSigner")) {
+        void* handle = dlopen("@executable_path/Frameworks/ZSign.dylib", RTLD_GLOBAL);
+        const char* dlerr = dlerror();
+        if (!handle || (uint64_t)handle > 0xf00000000000) {
+            if (dlerr) {
+                *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: %s", dlerr]}];
+            } else {
+                *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: An unknown error occurred."]}];
+            }
+            NSLog(@"[LC] %s", dlerr);
+            return;
         }
-        NSLog(@"[LC] %s", dlerr);
-        return;
     }
-    
+
     loaded = YES;
 }
 
