@@ -939,6 +939,13 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                     let inboxURL = documentsDirectory.appendingPathComponent("Inbox")
                     shouldDelete = installUrl.deletingLastPathComponent().standardizedFileURL == inboxURL.standardizedFileURL
                 }
+                // The store hands packages over through the shared group's ContainerInbox; that copy is
+                // just as temporary as our own Inbox one, and used to be left behind after every import.
+                if !shouldDelete,
+                   let sharedInbox = LCSharedUtils.appGroupPath()?.appendingPathComponent("ContainerInbox", isDirectory: true)
+                {
+                    shouldDelete = installUrl.deletingLastPathComponent().standardizedFileURL == sharedInbox.standardizedFileURL
+                }
                 if shouldDelete {
                     try fm.removeItem(at: installUrl)
                 }
